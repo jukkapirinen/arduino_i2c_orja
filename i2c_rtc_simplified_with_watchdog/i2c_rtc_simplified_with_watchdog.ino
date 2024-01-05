@@ -39,7 +39,7 @@ enum {
 #define CPU_FREQ                 16000000L     // 16MHz
 #define SLAVE_ADDRESS            0x2e
 byte zero = 0x00;                              //workaround for issue #527
-#define MAX_REGISTER             0x7F
+#define MAX_REGISTER             0x7f
 byte previousRequest=0x0;
 
 byte writeMask=0x80;
@@ -67,12 +67,6 @@ void setup()
   delay(1000); 
   // TWBR = ((CPU_FREQ / TWI_FREQ_SETTING) - 16) / 2;
   Wire.begin(SLAVE_ADDRESS);
-  int i;
-
-  // Initialize readQueue
-  for (i=0; i <= MAX_REGISTER; i++) {
-    readQueue[i]=0;
-  }
   // config pins
   pinMode(5, INPUT_PULLUP);
   pinMode(6, INPUT_PULLUP);
@@ -98,6 +92,18 @@ void setup()
   }
   serial3.println(F("\nI2C Orja (serial3)"));
 
+  int i;
+
+  // Initialize readQueue
+  Serial.print(F("Initialize readQueue MAXREGISTER="));
+  Serial.println(MAX_REGISTER);
+  for (i=0; i <= MAX_REGISTER; i++) {
+    readQueue[i]=0;
+    Serial.print(F("Setting readQueue["));
+    Serial.print(i);
+    Serial.println(F("] to 0"));
+  }
+
   Wire.onRequest(requestEvent); // register event handlers
   Wire.onReceive(receiveEvent); // register event handlers
   wdt_enable(WDTO_8S);          // enable watchdog
@@ -107,6 +113,12 @@ byte getVal(char c)
 {
    if(c >= '0' && c <= '9') return (byte)(c - '0');
    else return (byte)(c-'A'+10);
+}
+
+void reboot() {
+  Serial.println(F("Rebooting..."));
+  delay(1000); // Delay to allow the message to be printed
+  asm volatile ("  jmp 0");
 }
 
 void requestEvent(){
@@ -310,6 +322,10 @@ void handle_serial(Stream &serialport, String &input_data, int bit_id ) {
           writeLow = getVal(input_data[8]) + (getVal(input_data[7]) << 4);
           writeOrigin = bit_id;
         }
+      } else if (input_data.substring(0,4).equalsIgnoreCase("ATBA")) {
+        // ATB command received, trigger reboot
+        reboot();
+        return;
       } else if (input_data.substring(0,3).equalsIgnoreCase("ATB")) {
         serialport.println(F("Not supported in this emulation"));
         serialport.println(F("NO\n"));
