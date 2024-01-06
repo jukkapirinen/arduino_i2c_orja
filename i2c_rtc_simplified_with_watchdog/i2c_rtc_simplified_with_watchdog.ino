@@ -62,6 +62,10 @@ int i2cArgsLen = 0;                     // how many args passed by master to giv
 uint8_t i2cResponse[I2C_RESP_LEN_MAX];  // array to store response
 int i2cResponseLen = 0;                 // response length
 
+// Declare a boolean variable to indicate batch read status
+bool batchReadEnabled = false;
+int lastRead = 0;
+
 void setup()
 {
   delay(1000); 
@@ -208,6 +212,8 @@ void loop()
         if (okPending&2) serial2.println(F("OK\n"));
         if (okPending&4) serial3.println(F("OK\n"));
         okPending=0;
+        lastRead=0;
+        batchReadEnabled=0;
       }
     }
     requestedCmd = -1;   // set requestd cmd to -1 disabling processing in next loop
@@ -217,13 +223,28 @@ void loop()
     // If will check which serial terminal was interested about the received register value
     // and then prints it if there is a match
     if (readQueue[requestedCmd]&1) {
-      if (requestedCmd<16) Serial.print(F("0"));
-      Serial.print(requestedCmd, HEX); 
-      Serial.print(F("="));
-      if (i2cArgs[1]<16) Serial.print(F("0"));
-      Serial.print(i2cArgs[1], HEX);
-      if (i2cArgs[0]<16) Serial.print(F("0"));
-      Serial.println(i2cArgs[0], HEX);
+      if (batchReadEnabled) {
+        Serial.print(F("\"r"));
+        if (requestedCmd<16) Serial.print(F("0"));
+        Serial.print(requestedCmd, HEX); 
+        Serial.print(F("\": "));
+        // Convert the hexadecimal values to signed decimal
+        int16_t signedValue = (int16_t)((i2cArgs[1] << 8) | i2cArgs[0]);
+        Serial.print(signedValue);
+        if (requestedCmd == lastRead || lastRead == 0) {
+          Serial.println(F("}"));
+        } else {
+          Serial.print(F(", "));
+        }
+      } else {
+        if (requestedCmd<16) Serial.print(F("0"));
+        Serial.print(requestedCmd, HEX); 
+        Serial.print(F("="));
+        if (i2cArgs[1]<16) Serial.print(F("0"));
+        Serial.print(i2cArgs[1], HEX);
+        if (i2cArgs[0]<16) Serial.print(F("0"));
+        Serial.println(i2cArgs[0], HEX);
+      }
     }
     if (readQueue[requestedCmd]&2) {
       if (requestedCmd<16) serial2.print(F("0"));
@@ -296,6 +317,39 @@ void handle_serial(Stream &serialport, String &input_data, int bit_id ) {
             if (untill > MAX_REGISTER) { serialport.println(F("NO\n")); input_data = ""; return; } // error handling
             int i;
             for (i=start; i <= untill; i++) {
+              readQueue[i]=readQueue[i]|bit_id;
+            }
+          }
+        }
+      } else if (input_data.substring(0,3).equalsIgnoreCase("ATJ")) {
+        int pituus = input_data.substring(3).length();
+        byte start = getVal(input_data[4]) + (getVal(input_data[3]) << 4);
+        if (start > MAX_REGISTER ) { serialport.println(F("NO\n")); input_data = ""; return; }   // error handling
+        if (pituus > 4) {
+          byte untill = getVal(input_data[6]) + (getVal(input_data[5]) << 4);
+          if (untill > MAX_REGISTER || start > untill) { serialport.println(F("NO\n")); input_data = ""; return; }   // error handling
+          if (pituus > 8) {
+            byte start2 = getVal(input_data[8]) + (getVal(input_data[7]) << 4);
+            byte untill2 = getVal(input_data[10]) + (getVal(input_data[9]) << 4);
+            if (start2 > MAX_REGISTER || untill2 > MAX_REGISTER || untill > start2 || start2 > untill2) { serialport.println(F("NO\n")); input_data = ""; return; }   // error handling}
+          }
+        }
+        batchReadEnabled = true;
+        serialport.print(F("{"));
+        readQueue[start]=readQueue[start]|bit_id;
+        if (pituus > 4) {
+          byte untill = getVal(input_data[6]) + (getVal(input_data[5]) << 4);
+          lastRead = untill;
+          int i;
+          for (i=start+1; i <= untill; i++) {
+            readQueue[i]=readQueue[i]|bit_id;
+          }
+          if (pituus > 8) {
+            byte start2 = getVal(input_data[8]) + (getVal(input_data[7]) << 4);
+            byte untill2 = getVal(input_data[10]) + (getVal(input_data[9]) << 4);
+            lastRead = untill2;
+            int i;
+            for (i=start2; i <= untill2; i++) {
               readQueue[i]=readQueue[i]|bit_id;
             }
           }
